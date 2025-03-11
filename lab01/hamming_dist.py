@@ -86,3 +86,5 @@ def corrupt_data(data: bytes):
 # corrupt_data(b"helloworld")
 
 # print(hamming_distance("000001", "001101"))
+
+
