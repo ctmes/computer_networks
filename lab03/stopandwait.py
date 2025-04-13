@@ -85,7 +85,6 @@ class Node:
         self.pending_ack_seq = 0  # Sequence number of the pending acknowledgment
         self.printspaces = '\t' * (nodeinfo.nodenumber * 4)
 
-    # Modified to include ACK information
     def transmit_frame(self, msg: bytes, kind: FrameType, seqno: int):
         f = Frame()
         f.kind = kind
@@ -94,7 +93,6 @@ class Node:
         f.len = len(msg)
         f.msg = msg
 
-        # Include acknowledgment info if available
         if self.ack_pending and kind == FrameType.DLL_DATA:
             f.ack = self.pending_ack_seq
             self.ack_pending = False
@@ -103,11 +101,10 @@ class Node:
                 self.ack_timer = None
             print('{}Piggybacking ACK, seq={}'.format(self.printspaces, self.pending_ack_seq))
         else:
-            # For explicit ACK frames, use the ack field to carry the sequence number
             if kind == FrameType.DLL_ACK:
                 f.ack = seqno
             else:
-                f.ack = 0  # No ACK information
+                f.ack = 0
 
         packed = f.pack()
         f.checksum = checksums.checksum_ccitt(packed)
@@ -127,7 +124,6 @@ class Node:
 
             self.data_timer = start_timer(Event.TIMER1, 3 * timeout, None)
 
-    # Handler for when application has data to send
     def application_ready(self, destination: int, message: bytes):
         self.lastmsg = message
         disable_application()
@@ -137,7 +133,6 @@ class Node:
         self.transmit_frame(self.lastmsg, FrameType.DLL_DATA, self.nextframetosend)
         self.nextframetosend = 1 - self.nextframetosend
 
-    # Handler for when physical layer has data
     def physical_ready(self, linkno: int, framebytes: bytes):
         f = Frame()
         f.unpack(framebytes)
@@ -149,26 +144,21 @@ class Node:
             print('{}BAD checksum - frame ignored'.format(self.printspaces))
             return
 
-        # Process piggybacked ACK if present in a data frame
         if f.kind == FrameType.DLL_DATA:
-            # Check for piggybacked ACK
             if f.ack == self.ackexpected:
                 print('{}Received piggybacked ACK, seq={}'.format(self.printspaces, f.ack))
                 stop_timer(self.data_timer)
                 self.ackexpected = 1 - self.ackexpected
                 enable_application()
 
-            # Process data portion
             if f.seq == self.frameexpected:
                 write_application(f.msg)
                 self.frameexpected = 1 - self.frameexpected
                 result = 'up to application'
 
-                # Set pending ACK for piggybacking
                 self.ack_pending = True
                 self.pending_ack_seq = f.seq
 
-                # Start timer for delayed ACK (1 second = 1,000,000 microseconds)
                 if self.ack_timer:
                     stop_timer(self.ack_timer)
                 self.ack_timer = start_timer(Event.TIMER2, 1000000, f.seq)
@@ -178,7 +168,7 @@ class Node:
 
             print('{}DATA received, seq={}, {}'.format(self.printspaces, f.seq, result))
 
-        # Process explicit ACK frame
+        # Process ACKs
         elif f.kind == FrameType.DLL_ACK:
             if f.ack == self.ackexpected:
                 print('{}ACK received, seq={}'.format(self.printspaces, f.ack))
@@ -186,20 +176,19 @@ class Node:
                 self.ackexpected = 1 - self.ackexpected
                 enable_application()
 
-    # Handler for data frame transmission timeouts
+    # frame transmission timeouts
     def data_timeout(self):
         print('{}Data timeout, retransmitting seq={}'.format(self.printspaces, self.ackexpected))
         self.transmit_frame(self.lastmsg, FrameType.DLL_DATA, self.ackexpected)
 
-    # Handler for delayed ACK timeouts
+    # delayed ACK timeouts
     def ack_timeout(self, timerid):
-        # Get the sequence number from the timer data
         seq = timer_data(timerid)
         print('{}ACK timeout, sending explicit ACK for seq={}'.format(self.printspaces, seq))
         self.ack_pending = False
         self.transmit_frame(bytes(), FrameType.DLL_ACK, seq)
 
-    # Node initialization
+    # Node init
     def reboot_node(self):
         if (nodeinfo.nodenumber > 1):
             print('This is not a 2-node network!')
@@ -208,7 +197,6 @@ class Node:
         set_handler(Event.APPLICATIONREADY, self.application_ready)
         set_handler(Event.PHYSICALREADY, self.physical_ready)
         set_handler(Event.TIMER1, self.data_timeout)
-        set_handler(Event.TIMER2, self.ack_timeout)  # New handler for delayed ACKs
+        set_handler(Event.TIMER2, self.ack_timeout)  # ACKs
 
-        # Enable application on both nodes to allow bidirectional traffic
         enable_application()
